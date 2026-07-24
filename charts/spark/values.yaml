@@ -18,6 +18,16 @@ jupyter:
   # Skaffold overrides this at deploy time; the default lets `helm template` work.
   image: spark-jupyter:latest
   token: spark123
+
+# Mount a host directory into the Jupyter driver AND the workers at the SAME
+# path, so local files (notebooks/, test-datasets/) are readable in both local
+# and cluster mode — in cluster mode the executors read the file too, so the
+# path must resolve identically on every pod. Docker Desktop / minikube share
+# /Users. spinup.sh injects hostPath = the repo dir automatically.
+hostMount:
+  enabled: true
+  hostPath: ""                           # set by Skaffold/spinup.sh (repo dir)
+  mountPath: /opt/spark/work-dir/project
   resources:
     requests:
       cpu: 100m

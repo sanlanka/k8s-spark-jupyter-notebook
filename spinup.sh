@@ -49,6 +49,9 @@ Port-forwarding is handled by Skaffold. Press Ctrl-C to stop it.
 
 EOF
 
+# Mount this repo into Jupyter + workers so local files are readable in the pods.
+export PROJECT_DIR="$PWD"
+
 # `skaffold dev` builds, deploys, and holds the portForward entries defined in
 # skaffold.yaml. --cleanup=false keeps the cluster running after Ctrl-C.
 exec skaffold dev --port-forward=user --cleanup=false --tail=false

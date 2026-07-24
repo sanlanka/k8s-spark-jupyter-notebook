@@ -37,3 +37,15 @@ spec:
               containerPort: 8081
           resources:
 {{ toYaml .Values.spark.resources | indent 12 }}
+{{- if and .Values.hostMount.enabled .Values.hostMount.hostPath }}
+          # Executors read input files too — mount the same host dir at the same
+          # path so cluster-mode reads resolve identically to the driver.
+          volumeMounts:
+            - name: project
+              mountPath: {{ .Values.hostMount.mountPath }}
+      volumes:
+        - name: project
+          hostPath:
+            path: {{ .Values.hostMount.hostPath | quote }}
+            type: Directory
+{{- end }}

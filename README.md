@@ -40,6 +40,32 @@ print(spark.sparkContext.parallelize(range(1, 101)).sum())   # 5050
 spark.stop()
 ```
 
+## Reading data files
+
+The pods can't see your Mac's filesystem, so **any file you want to read must
+live inside this repo directory** — it's bind-mounted (via `spinup.sh`) into the
+Jupyter driver *and* the workers at `/opt/spark/work-dir/project`. Drop CSVs in
+`test-datasets/` (or anywhere under the repo) and read them with the **in-pod
+path**, not the host path:
+
+```python
+df = (spark.read
+      .option("header", True)
+      .option("inferSchema", True)
+      .csv("/opt/spark/work-dir/project/test-datasets/retail_sales.csv"))
+# or, relative to Jupyter's root: "project/test-datasets/retail_sales.csv"
+```
+
+Notes:
+- A host path like `/Users/you/...` will fail — that path doesn't exist in the pod.
+- In cluster mode the **executors** read the file too, which is why it's mounted
+  on the workers as well. The path resolves identically on every pod.
+- The whole repo is mounted, so your `notebooks/` and `test-datasets/` show up
+  under a **`project/`** folder in the Jupyter file browser.
+- This uses a `hostPath` mount and works on Docker Desktop / minikube (they share
+  `/Users`). On a remote/multi-node cluster, use object storage (S3/GCS) or a
+  PersistentVolume instead.
+
 ## How it fits together
 
 - **`skaffold.yaml`** — builds the Jupyter image and deploys the Helm chart;

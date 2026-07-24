@@ -27,6 +27,9 @@ manifests:
           - charts/spark/values.yaml
         setValueTemplates:
           jupyter.image: "{{.IMAGE_REPO_spark_jupyter}}:{{.IMAGE_TAG_spark_jupyter}}"
+          # Host dir to mount into Jupyter + workers. Set PROJECT_DIR (spinup.sh
+          # does); if empty the chart skips the mount.
+          hostMount.hostPath: "{{.PROJECT_DIR}}"
 deploy:
   helm: {}
 
