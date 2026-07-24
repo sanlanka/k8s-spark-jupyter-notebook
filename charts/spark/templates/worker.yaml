@@ -38,14 +38,10 @@ spec:
           resources:
 {{ toYaml .Values.spark.resources | indent 12 }}
 {{- if and .Values.hostMount.enabled .Values.hostMount.hostPath }}
-          # Executors read input files too — mount the same host dir at the same
-          # path so cluster-mode reads resolve identically to the driver.
+          # Executors read input files too — mount the same folders at the same
+          # paths so cluster-mode reads resolve identically to the driver.
           volumeMounts:
-            - name: project
-              mountPath: {{ .Values.hostMount.mountPath }}
+{{ include "spark.hostMounts" . | indent 12 }}
       volumes:
-        - name: project
-          hostPath:
-            path: {{ .Values.hostMount.hostPath | quote }}
-            type: Directory
+{{ include "spark.hostVolumes" . | indent 8 }}
 {{- end }}

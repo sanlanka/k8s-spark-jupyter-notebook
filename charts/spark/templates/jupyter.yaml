@@ -47,13 +47,9 @@ spec:
 {{ toYaml .Values.jupyter.resources | indent 12 }}
 {{- if and .Values.hostMount.enabled .Values.hostMount.hostPath }}
           volumeMounts:
-            - name: project
-              mountPath: {{ .Values.hostMount.mountPath }}
+{{ include "spark.hostMounts" . | indent 12 }}
       volumes:
-        - name: project
-          hostPath:
-            path: {{ .Values.hostMount.hostPath | quote }}
-            type: Directory
+{{ include "spark.hostVolumes" . | indent 8 }}
 {{- end }}
 ---
 apiVersion: v1

@@ -42,11 +42,12 @@ spark.stop()
 
 ## Reading data files
 
-The pods can't see your Mac's filesystem, so **any file you want to read must
-live inside this repo directory.** The repo is bind-mounted (via `spinup.sh`) as
-Jupyter's root *and* onto the workers, so paths resolve identically everywhere.
-Drop CSVs in `test-datasets/` (or anywhere in the repo) and use a path relative
-to your notebook:
+The pods can't see your Mac's filesystem, so **files you want to read must live
+in one of the exposed folders** — by default `notebooks/` and `test-datasets/`.
+These are bind-mounted (via `spinup.sh`) as siblings at Jupyter's root *and* onto
+the workers, so paths resolve identically everywhere and the Jupyter file browser
+stays clean (no `charts/`, `docker/`, `.git`, scripts). Drop CSVs in
+`test-datasets/` and use a path relative to your notebook:
 
 ```python
 # from a notebook in notebooks/ :
@@ -62,6 +63,7 @@ Path rules:
   `../test-datasets/x.csv`; notebook at the repo root → `test-datasets/x.csv`.
 - An absolute in-pod path always works too: `/opt/spark/work-dir/test-datasets/x.csv`.
 - A host path like `/Users/you/...` will **not** work — it doesn't exist in the pod.
+- To expose another folder, add it to `hostMount.paths` in `charts/spark/values.yaml`.
 - In cluster mode the **executors** read the file too; that's why the repo is
   mounted on the workers as well (same absolute path on every pod).
 - This uses a `hostPath` mount and works on Docker Desktop / minikube (they share

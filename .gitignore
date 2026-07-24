@@ -1,0 +1,9 @@
+# Jupyter
+.ipynb_checkpoints/
+
+# Claude Code local settings
+.claude/
+
+# Python
+__pycache__/
+*.pyc

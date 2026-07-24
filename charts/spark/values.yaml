@@ -26,12 +26,16 @@ jupyter:
 # /Users. spinup.sh injects hostPath = the repo dir automatically.
 hostMount:
   enabled: true
-  hostPath: ""                           # set by Skaffold/spinup.sh (repo dir)
-  # Mount the repo AS Jupyter's root, so notebooks/ and test-datasets/ sit at
-  # the top level and you can use short relative paths (e.g. from a notebook in
-  # notebooks/: "../test-datasets/retail_sales.csv"). Same path on the workers
-  # so cluster-mode reads resolve identically.
-  mountPath: /opt/spark/work-dir
+  hostPath: ""                           # repo dir; set by Skaffold/spinup.sh
+  mountRoot: /opt/spark/work-dir         # Jupyter's root inside the pod
+  # Only these repo subfolders are exposed inside the pods, so the Jupyter file
+  # browser stays clean (no charts/, docker/, .git, scripts). They mount as
+  # siblings under mountRoot, so from a notebook in notebooks/ you can read
+  # "../test-datasets/retail_sales.csv". Same paths on the workers so
+  # cluster-mode reads resolve identically. Add a folder here to expose it.
+  paths:
+    - notebooks
+    - test-datasets
   resources:
     requests:
       cpu: 100m
