@@ -27,7 +27,11 @@ jupyter:
 hostMount:
   enabled: true
   hostPath: ""                           # set by Skaffold/spinup.sh (repo dir)
-  mountPath: /opt/spark/work-dir/project
+  # Mount the repo AS Jupyter's root, so notebooks/ and test-datasets/ sit at
+  # the top level and you can use short relative paths (e.g. from a notebook in
+  # notebooks/: "../test-datasets/retail_sales.csv"). Same path on the workers
+  # so cluster-mode reads resolve identically.
+  mountPath: /opt/spark/work-dir
   resources:
     requests:
       cpu: 100m

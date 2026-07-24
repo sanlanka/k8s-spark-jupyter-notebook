@@ -43,25 +43,27 @@ spark.stop()
 ## Reading data files
 
 The pods can't see your Mac's filesystem, so **any file you want to read must
-live inside this repo directory** — it's bind-mounted (via `spinup.sh`) into the
-Jupyter driver *and* the workers at `/opt/spark/work-dir/project`. Drop CSVs in
-`test-datasets/` (or anywhere under the repo) and read them with the **in-pod
-path**, not the host path:
+live inside this repo directory.** The repo is bind-mounted (via `spinup.sh`) as
+Jupyter's root *and* onto the workers, so paths resolve identically everywhere.
+Drop CSVs in `test-datasets/` (or anywhere in the repo) and use a path relative
+to your notebook:
 
 ```python
+# from a notebook in notebooks/ :
 df = (spark.read
       .option("header", True)
       .option("inferSchema", True)
-      .csv("/opt/spark/work-dir/project/test-datasets/retail_sales.csv"))
-# or, relative to Jupyter's root: "project/test-datasets/retail_sales.csv"
+      .csv("../test-datasets/retail_sales.csv"))
 ```
 
-Notes:
-- A host path like `/Users/you/...` will fail — that path doesn't exist in the pod.
-- In cluster mode the **executors** read the file too, which is why it's mounted
-  on the workers as well. The path resolves identically on every pod.
-- The whole repo is mounted, so your `notebooks/` and `test-datasets/` show up
-  under a **`project/`** folder in the Jupyter file browser.
+Path rules:
+- The relative path is relative to **where your notebook lives** (Jupyter runs
+  each kernel from the notebook's folder). Notebook in `notebooks/` →
+  `../test-datasets/x.csv`; notebook at the repo root → `test-datasets/x.csv`.
+- An absolute in-pod path always works too: `/opt/spark/work-dir/test-datasets/x.csv`.
+- A host path like `/Users/you/...` will **not** work — it doesn't exist in the pod.
+- In cluster mode the **executors** read the file too; that's why the repo is
+  mounted on the workers as well (same absolute path on every pod).
 - This uses a `hostPath` mount and works on Docker Desktop / minikube (they share
   `/Users`). On a remote/multi-node cluster, use object storage (S3/GCS) or a
   PersistentVolume instead.
