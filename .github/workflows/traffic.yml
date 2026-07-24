@@ -6,7 +6,7 @@ on:
   workflow_dispatch:         # run on demand from the Actions tab
 
 permissions:
-  contents: write            # built-in token commits the CSVs
+  contents: write            # push to the stats branch (NOT main)
 
 concurrency:
   group: traffic-stats
@@ -15,11 +15,12 @@ concurrency:
 jobs:
   snapshot:
     runs-on: ubuntu-latest
+    env:
+      BRANCH: traffic-stats  # data lives here; main is never touched
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4   # brings in .github/scripts/traffic.py
 
-      # Mint a short-lived (1h) installation token scoped to Administration:read.
-      # No PAT — just the App's ID (a repo variable) and private key (a secret).
+      # Short-lived (1h) token scoped to Administration:read — reads traffic only.
       - name: Mint GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v3
@@ -28,20 +29,35 @@ jobs:
           private-key: ${{ secrets.PAGE_VIEWER_COUNTER_GITHUB_ACCESS_KEY }}
           permission-administration: read
 
-      - name: Snapshot traffic
+      - name: Snapshot traffic onto the ${{ env.BRANCH }} branch
         env:
           REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: python3 .github/scripts/traffic.py
-
-      - name: Commit updated stats
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}   # traffic API (admin:read)
+          PUSH_TOKEN: ${{ github.token }}                   # push to the stats branch
         run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add stats/
-          if git diff --cached --quiet; then
-            echo "No stats changes."
+          set -euo pipefail
+          git config --global user.name  "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          REMOTE="https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          TMP="$(mktemp -d)"
+
+          # Check out the stats branch (holds prior history) — or start it empty.
+          if git ls-remote --exit-code --heads "$REMOTE" "$BRANCH" >/dev/null 2>&1; then
+            git clone --depth 1 --branch "$BRANCH" "$REMOTE" "$TMP"
           else
-            git commit -m "chore: update traffic stats [skip ci]"
-            git push
+            git clone --depth 1 "$REMOTE" "$TMP"
+            git -C "$TMP" checkout --orphan "$BRANCH"
+            git -C "$TMP" reset --hard
+            git -C "$TMP" clean -fdx
+          fi
+
+          # Merge today's numbers into that branch's stats/ dir.
+          STATS_DIR="$TMP/stats" python3 .github/scripts/traffic.py
+
+          git -C "$TMP" add stats
+          if git -C "$TMP" diff --cached --quiet; then
+            echo "No changes."
+          else
+            git -C "$TMP" commit -m "chore: update traffic stats [skip ci]"
+            git -C "$TMP" push "$REMOTE" "HEAD:$BRANCH"
           fi

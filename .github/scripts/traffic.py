@@ -14,7 +14,7 @@ import csv, json, os, sys, urllib.request, urllib.error, datetime
 
 REPO = os.environ["REPO"]
 TOKEN = os.environ["GH_TOKEN"]
-STATS = "stats"
+STATS = os.environ.get("STATS_DIR", "stats")   # target dir (a checkout of the stats branch)
 os.makedirs(STATS, exist_ok=True)
 
 
