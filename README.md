@@ -1,5 +1,9 @@
 # Spark + Jupyter on Kubernetes
 
+[![Page views](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sanlanka/k8s-spark-jupyter-notebook/traffic-stats/stats/views.json)](https://github.com/sanlanka/k8s-spark-jupyter-notebook/blob/traffic-stats/stats/SUMMARY.md)
+[![Unique visitors](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sanlanka/k8s-spark-jupyter-notebook/traffic-stats/stats/visitors.json)](https://github.com/sanlanka/k8s-spark-jupyter-notebook/blob/traffic-stats/stats/SUMMARY.md)
+[![Clones](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sanlanka/k8s-spark-jupyter-notebook/traffic-stats/stats/clones.json)](https://github.com/sanlanka/k8s-spark-jupyter-notebook/blob/traffic-stats/stats/SUMMARY.md)
+
 A standalone **Apache Spark 4.0.0** cluster (master + worker) plus a **Jupyter**
 notebook that connects to it — deployed with one command via **Skaffold** and a
 small custom **Helm** chart.

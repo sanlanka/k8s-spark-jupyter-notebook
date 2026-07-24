@@ -52,8 +52,19 @@ def merge(kind):
     return sum(c for c, _ in rows.values()), sum(u for _, u in rows.values()), len(rows)
 
 
+def badge(name, label, value, color="blue"):
+    """Write a shields.io endpoint-badge JSON so the count can render on main."""
+    with open(os.path.join(STATS, f"{name}.json"), "w") as f:
+        json.dump({"schemaVersion": 1, "label": label,
+                   "message": f"{value:,}", "color": color}, f)
+
+
 v_total, v_uniq, v_days = merge("views")
 c_total, c_uniq, c_days = merge("clones")
+
+badge("views", "page views", v_total, "blue")
+badge("visitors", "unique visitors", v_uniq, "blueviolet")
+badge("clones", "clones", c_total, "green")
 
 now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 with open(os.path.join(STATS, "SUMMARY.md"), "w") as f:
