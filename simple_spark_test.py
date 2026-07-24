@@ -3,7 +3,7 @@ from pyspark.sql import SparkSession
 # Connect to your Kubernetes Spark cluster
 spark = SparkSession.builder \
     .appName("LocalToK8sSparkTest") \
-    .master("spark://localhost:7077") \
+    .master("spark://spark-master:7077") \
     .config("spark.executor.memory", "1g") \
     .config("spark.executor.cores", "1") \
     .getOrCreate()

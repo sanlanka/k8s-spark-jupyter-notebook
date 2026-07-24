@@ -36,7 +36,7 @@ if __name__ == "__main__":
     # Create Spark session that connects to remote cluster
     spark = SparkSession.builder \
         .appName("MinimalRemoteClient") \
-        .master("spark://localhost:7077") \
+        .master("spark://spark-master:7077") \
         .config("spark.executor.memory", "1g") \
         .config("spark.executor.cores", "1") \
         .config("spark.driver.host", "host.docker.internal") \

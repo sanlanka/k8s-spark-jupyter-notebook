@@ -4,7 +4,7 @@ import os
 # Create Spark session with proper networking configuration
 spark = SparkSession.builder \
     .appName("WorkingSparkTest") \
-    .master("spark://spark-cluster-master-svc:7077") \
+    .master("spark://spark-master:7077") \
     .config("spark.executor.memory", "512m") \
     .config("spark.executor.cores", "1") \
     .config("spark.cores.max", "1") \

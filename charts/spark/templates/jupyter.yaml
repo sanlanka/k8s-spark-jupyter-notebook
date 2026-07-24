@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jupyter-pyspark
+  labels:
+    app: jupyter-pyspark
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jupyter-pyspark
+  template:
+    metadata:
+      labels:
+        app: jupyter-pyspark
+    spec:
+      # Avoid Spark-colliding SPARK_MASTER_* service-link env vars.
+      enableServiceLinks: false
+      containers:
+        - name: jupyter
+          image: {{ .Values.jupyter.image | quote }}
+          command: ["/bin/bash", "-lc"]
+          args:
+            - |
+              set -e
+              # Advertise the pod IP so cluster executors can reach the driver;
+              # bind on all interfaces. Written before the notebook starts so both
+              # notebook SparkSessions and spark-submit pick it up.
+              {
+                echo "spark.driver.host $(hostname -i | awk '{print $1}')"
+                echo "spark.driver.bindAddress 0.0.0.0"
+              } >> /opt/spark/conf/spark-defaults.conf
+              exec jupyter lab --ip=0.0.0.0 --port=8888 --no-browser \
+                --ServerApp.token="${JUPYTER_TOKEN}" \
+                --ServerApp.root_dir=/opt/spark/work-dir
+          env:
+            - name: JUPYTER_TOKEN
+              value: {{ .Values.jupyter.token | quote }}
+            - name: SPARK_MASTER
+              value: "spark://{{ .Values.spark.masterService }}:7077"
+          ports:
+            - name: jupyter
+              containerPort: 8888
+            - name: driver-ui
+              containerPort: 4040
+          resources:
+{{ toYaml .Values.jupyter.resources | indent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jupyter-service
+  labels:
+    app: jupyter-pyspark
+spec:
+  selector:
+    app: jupyter-pyspark
+  ports:
+    - name: jupyter
+      port: 8888
+      targetPort: 8888
+    - name: driver-ui
+      port: 4040
+      targetPort: 4040

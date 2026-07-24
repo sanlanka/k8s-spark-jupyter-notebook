@@ -1,0 +1,24 @@
+# Values for the spark-jupyter chart.
+
+spark:
+  # Cluster runs the stock, official Apache Spark image (Docker Hub) — no build.
+  image: apache/spark:4.0.0
+  masterService: spark-master
+  worker:
+    replicas: 1        # start with 2 pods total: 1 master + 1 worker
+    cores: 1
+    memory: 2G         # headroom so a default 1g PySpark executor fits
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+jupyter:
+  # Built by Skaffold from docker/jupyter/Dockerfile (apache/spark + JupyterLab).
+  # Skaffold overrides this at deploy time; the default lets `helm template` work.
+  image: spark-jupyter:latest
+  token: spark123
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi

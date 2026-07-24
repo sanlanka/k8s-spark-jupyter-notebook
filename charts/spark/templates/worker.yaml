@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-worker
+  labels:
+    app: spark-worker
+spec:
+  replicas: {{ .Values.spark.worker.replicas }}
+  selector:
+    matchLabels:
+      app: spark-worker
+  template:
+    metadata:
+      labels:
+        app: spark-worker
+    spec:
+      # Avoid Spark-colliding SPARK_MASTER_* service-link env vars.
+      enableServiceLinks: false
+      containers:
+        - name: spark-worker
+          image: {{ .Values.spark.image | quote }}
+          command: ["/opt/spark/bin/spark-class"]
+          args:
+            - org.apache.spark.deploy.worker.Worker
+            - spark://{{ .Values.spark.masterService }}:7077
+            - --cores
+            - {{ .Values.spark.worker.cores | quote }}
+            - --memory
+            - {{ .Values.spark.worker.memory | quote }}
+          env:
+            - name: SPARK_LOCAL_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          ports:
+            - name: worker-ui
+              containerPort: 8081
+          resources:
+{{ toYaml .Values.spark.resources | indent 12 }}

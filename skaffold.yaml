@@ -1,0 +1,50 @@
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: spark-jupyter
+
+# Skaffold builds the Jupyter driver image (apache/spark + JupyterLab) locally.
+# On Docker Desktop / minikube the image is used straight from the local daemon
+# (no registry push needed).
+build:
+  local:
+    push: false
+  artifacts:
+    - image: spark-jupyter
+      context: docker/jupyter
+      docker:
+        dockerfile: Dockerfile
+
+# Deploy the custom Helm chart, injecting the freshly built image tag.
+manifests:
+  helm:
+    releases:
+      - name: spark-jupyter
+        chartPath: charts/spark
+        namespace: api
+        createNamespace: true
+        valuesFiles:
+          - charts/spark/values.yaml
+        setValueTemplates:
+          jupyter.image: "{{.IMAGE_REPO_spark_jupyter}}:{{.IMAGE_TAG_spark_jupyter}}"
+deploy:
+  helm: {}
+
+# Port-forwarding is part of the Skaffold config — `skaffold run --port-forward`
+# (or `skaffold dev`) forwards these automatically. No manual kubectl needed.
+portForward:
+  - resourceType: service
+    resourceName: jupyter-service
+    namespace: api
+    port: 8888
+    localPort: 8888
+  - resourceType: service
+    resourceName: jupyter-service
+    namespace: api
+    port: 4040
+    localPort: 4040
+  - resourceType: service
+    resourceName: spark-master
+    namespace: api
+    port: 8080
+    localPort: 8080
