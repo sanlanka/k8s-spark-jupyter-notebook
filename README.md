@@ -1,5 +1,11 @@
 # Spark + Jupyter on Kubernetes
 
+[![Star this repo](https://img.shields.io/github/stars/sanlanka/k8s-spark-jupyter-notebook?style=flat&logo=github&label=Star%20this%20repo&color=yellow)](https://github.com/sanlanka/k8s-spark-jupyter-notebook)
+[![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/slanka10)
+
+If this saved you an afternoon of YAML, a ⭐ helps others find it — and
+[coffee](https://buymeacoffee.com/slanka10) keeps it maintained.
+
 [![Page views](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sanlanka/k8s-spark-jupyter-notebook/traffic-stats/stats/views.json&cacheSeconds=300)](https://github.com/sanlanka/k8s-spark-jupyter-notebook/blob/traffic-stats/stats/SUMMARY.md)
 [![Unique visitors](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sanlanka/k8s-spark-jupyter-notebook/traffic-stats/stats/visitors.json&cacheSeconds=300)](https://github.com/sanlanka/k8s-spark-jupyter-notebook/blob/traffic-stats/stats/SUMMARY.md)
 [![Clones](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sanlanka/k8s-spark-jupyter-notebook/traffic-stats/stats/clones.json&cacheSeconds=300)](https://github.com/sanlanka/k8s-spark-jupyter-notebook/blob/traffic-stats/stats/SUMMARY.md)
