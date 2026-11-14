@@ -29,8 +29,8 @@ spec:
               {
                 echo "spark.driver.host ${POD_IP}"
                 echo "spark.driver.bindAddress 0.0.0.0"
-{{- with include "spark.warehouseDir" . }}
-                echo "spark.sql.warehouse.dir {{ . }}"
+{{- range $k, $v := include "spark.driverConf" . | fromYaml }}
+                echo {{ printf "%s %s" $k $v | squote }}
 {{- end }}
               } >> /opt/spark/conf/spark-defaults.conf
               exec jupyter lab --ip=0.0.0.0 --port=8888 --no-browser \

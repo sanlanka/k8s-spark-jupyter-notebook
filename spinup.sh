@@ -1,16 +1,41 @@
 #!/usr/bin/env bash
 #
-# One-stop-shop: install missing tooling, build the Jupyter image, deploy the
-# Spark cluster + Jupyter via Skaffold, and hold the port-forwards.
+# One-stop-shop: install missing tooling, build the image, deploy the Spark
+# cluster + Jupyter + Spark Connect via Skaffold, and hold the port-forwards.
 #
-# Just run:  ./spinup.sh
+#   ./spinup.sh                          # defaults from charts/spark/values.yaml
+#   ./spinup.sh -f my-project.yaml       # + your project's overrides (yours win)
+#   ./spinup.sh --allow-context NAME     # deploy to a non-local cluster you own
+#
 # Stop with: Ctrl-C   (resources are left running; use ./teardown.sh to remove)
 #
 set -euo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")"
 
 info()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 error() { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
+
+usage() { sed -n '3,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+# --- Arguments (resolved before cd, so -f paths are relative to where you are)
+PROJECT_VALUES=""
+ALLOW_CONTEXT=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -f|--values)
+      [[ -n "${2:-}" ]] || error "$1 needs a file"
+      [[ -f "$2" ]] || error "Values file not found: $2"
+      PROJECT_VALUES="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"; shift 2 ;;
+    --allow-context)
+      [[ -n "${2:-}" ]] || error "$1 needs a context name"
+      ALLOW_CONTEXT="$2"; shift 2 ;;
+    -h|--help) usage ;;
+    *) printf 'Unknown argument: %s\n\n' "$1" >&2; usage 1 ;;
+  esac
+done
+
+cd "$(dirname "${BASH_SOURCE[0]}")"
+# shellcheck source=scripts/cluster-guard.sh
+source scripts/cluster-guard.sh
 
 # --- Install prerequisites (assume nothing) -------------------------------
 ensure_brew() {
@@ -33,42 +58,63 @@ ensure_tool skaffold
 
 # --- Verify the environment -----------------------------------------------
 docker info >/dev/null 2>&1 || error "Docker daemon not reachable. Start Docker Desktop and try again."
-kubectl cluster-info >/dev/null 2>&1 || \
-  error "No reachable Kubernetes cluster. Enable Kubernetes in Docker Desktop (Settings > Kubernetes), or start minikube."
+check_cluster "$ALLOW_CONTEXT"          # local clusters only, unless explicitly allowed
+kubectl --context "$CLUSTER_CONTEXT" cluster-info >/dev/null 2>&1 || \
+  error "Kubernetes context '$CLUSTER_CONTEXT' is not reachable. Enable Kubernetes in Docker Desktop (Settings > Kubernetes), or start minikube."
 
-info "Tooling and cluster OK. Context: $(kubectl config current-context)"
+info "Tooling and cluster OK. Context: $CLUSTER_CONTEXT"
 
-# --- Versions: single source of truth is charts/spark/values.yaml ----------
+# --- Build settings: charts/spark/values.yaml, overridden by -f <file> -------
 VALUES_FILE=charts/spark/values.yaml
 
-# Read `versions.<key>` from the values file (flat block, no yq needed).
-read_version() {
-  awk -v key="$1" '
-    /^versions:/                 { in_block = 1; next }
+# Print `<block>.<key>` from a values file: a top-level block of flat, one-line
+# `key: value` entries (no yq needed). Strips quotes and trailing # comments.
+read_key() {
+  awk -v block="$2" -v key="$3" '
+    $0 ~ "^" block ":"           { in_block = 1; next }
     in_block && /^[^[:space:]#]/ { exit }
-    in_block && $1 == key ":"    { v = $2; gsub(/["'\'']/, "", v); print v; exit }
-  ' "$VALUES_FILE"
+    in_block && $1 == key ":" {
+      sub(/^[^:]*:[[:space:]]*/, ""); sub(/[[:space:]]+#.*$/, "")
+      gsub(/^["'\'']|["'\'']$/, ""); print; exit
+    }' "$1"
+}
+# The project file wins when it sets the key; otherwise the chart default.
+read_value() {
+  local v=""
+  [[ -n "$PROJECT_VALUES" ]] && v="$(read_key "$PROJECT_VALUES" "$1" "$2")"
+  [[ -n "$v" ]] || v="$(read_key "$VALUES_FILE" "$1" "$2")"
+  printf '%s' "$v"
 }
 
-SPARK_VERSION="$(read_version spark)"
-PYTHON_VERSION="$(read_version python)"
-DELTA_SPARK_VERSION="$(read_version deltaSpark)"
-JAVA_VERSION="$(read_version java)"
+SPARK_VERSION="$(read_value versions spark)"
+PYTHON_VERSION="$(read_value versions python)"
+DELTA_SPARK_VERSION="$(read_value versions deltaSpark)"
+JAVA_VERSION="$(read_value versions java)"
 for v in SPARK_VERSION PYTHON_VERSION DELTA_SPARK_VERSION JAVA_VERSION; do
   [[ -n "${!v}" ]] || error "Missing versions.* entry for $v in $VALUES_FILE"
 done
-export SPARK_VERSION PYTHON_VERSION DELTA_SPARK_VERSION JAVA_VERSION
+EXTRA_MAVEN_PACKAGES="$(read_value extraPackages maven)"
+EXTRA_PIP_PACKAGES="$(read_value extraPackages pip)"
+JUPYTER_TOKEN="$(read_value jupyter token)"
+export SPARK_VERSION PYTHON_VERSION DELTA_SPARK_VERSION JAVA_VERSION \
+       EXTRA_MAVEN_PACKAGES EXTRA_PIP_PACKAGES
+# Skaffold layers this on top of the chart defaults (same file twice if no -f).
+export PROJECT_VALUES="${PROJECT_VALUES:-$PWD/$VALUES_FILE}"
 
 # --- Spin everything up ----------------------------------------------------
 cat <<EOF
 
 Building the image (Spark $SPARK_VERSION, Python $PYTHON_VERSION, Delta $DELTA_SPARK_VERSION, Java $JAVA_VERSION)
-and deploying via Skaffold. Change versions in $VALUES_FILE.
+  extra Maven: ${EXTRA_MAVEN_PACKAGES:-none}
+  extra pip  : ${EXTRA_PIP_PACKAGES:-none}
+  values     : $VALUES_FILE$( [[ "$PROJECT_VALUES" != "$PWD/$VALUES_FILE" ]] && echo " + $PROJECT_VALUES" )
+and deploying to '$CLUSTER_CONTEXT' via Skaffold.
 Once ready:
-  Jupyter       : http://localhost:8888   (token: spark123)
+  Jupyter       : http://localhost:8888   (token: $JUPYTER_TOKEN)
   Spark UI      : http://localhost:8080
   Spark Connect : sc://localhost:15002    (use the cluster from any local program)
-Port-forwarding is handled by Skaffold. Press Ctrl-C to stop it.
+If a port is busy locally, Skaffold uses the next free one — see the
+"Port forwarding" lines below. Press Ctrl-C to stop forwarding.
 
 EOF
 
@@ -79,4 +125,5 @@ mkdir -p warehouse
 
 # `skaffold dev` builds, deploys, and holds the portForward entries defined in
 # skaffold.yaml. --cleanup=false keeps the cluster running after Ctrl-C.
-exec skaffold dev --port-forward=user --cleanup=false --tail=false
+exec skaffold dev --kube-context "$CLUSTER_CONTEXT" \
+  --port-forward=user --cleanup=false --tail=false

@@ -7,8 +7,9 @@ metadata:
 # pod. On Docker Desktop / minikube the image is used straight from the local
 # daemon (no registry push needed).
 #
-# Versions come from `versions:` in charts/spark/values.yaml — spinup.sh reads
-# that block and exports these env vars. Don't hardcode versions here.
+# Versions and extra packages come from `versions:` / `extraPackages:` in
+# charts/spark/values.yaml (+ your -f file) — spinup.sh reads them and exports
+# these env vars. Don't hardcode them here.
 build:
   local:
     push: false
@@ -22,6 +23,8 @@ build:
           PYTHON_VERSION: "{{.PYTHON_VERSION}}"
           DELTA_SPARK_VERSION: "{{.DELTA_SPARK_VERSION}}"
           JAVA_VERSION: "{{.JAVA_VERSION}}"
+          EXTRA_MAVEN_PACKAGES: "{{.EXTRA_MAVEN_PACKAGES}}"
+          EXTRA_PIP_PACKAGES: "{{.EXTRA_PIP_PACKAGES}}"
 
 # Deploy the custom Helm chart, injecting the freshly built image tag.
 manifests:
@@ -31,8 +34,11 @@ manifests:
         chartPath: charts/spark
         namespace: api
         createNamespace: true
+        # Chart defaults, then the project's own file from `spinup.sh -f` (later
+        # files win). spinup.sh sets PROJECT_VALUES to the defaults when no -f.
         valuesFiles:
           - charts/spark/values.yaml
+          - "{{.PROJECT_VALUES}}"
         setValueTemplates:
           image: "{{.IMAGE_REPO_spark_jupyter}}:{{.IMAGE_TAG_spark_jupyter}}"
           # Host dir to mount into Jupyter + workers. Set PROJECT_DIR (spinup.sh

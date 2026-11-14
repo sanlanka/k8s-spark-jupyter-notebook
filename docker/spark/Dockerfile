@@ -2,10 +2,10 @@
 # Jupyter. PySpark refuses to run when the driver and executors use different
 # Python minor versions, so they must all share this exact interpreter.
 #
-# Don't edit the versions here: set them under `versions:` in
-# charts/spark/values.yaml. spinup.sh reads that block and Skaffold passes the
-# values in as these build args. The defaults below only apply to a bare
-# `docker build`.
+# Don't edit the versions or packages here: set `versions:` and `extraPackages:`
+# in charts/spark/values.yaml (or your own -f overrides file). spinup.sh reads
+# them and Skaffold passes them in as these build args. The defaults below only
+# apply to a bare `docker build`.
 ARG SPARK_VERSION=4.1.0
 ARG JAVA_VERSION=17
 
@@ -15,6 +15,12 @@ FROM apache/spark:${SPARK_VERSION}-scala2.13-java${JAVA_VERSION}-ubuntu
 ARG SPARK_VERSION
 ARG PYTHON_VERSION=3.12
 ARG DELTA_SPARK_VERSION=4.2.0
+# Extra Maven coordinates (comma-separated, like spark --packages) and pip specs
+# (space-separated, like pip install). Baked into every pod: driver AND executors.
+ARG EXTRA_MAVEN_PACKAGES=""
+ARG EXTRA_PIP_PACKAGES=""
+# protobuf-java required by the Delta Connect server plugin (see below).
+ARG DELTA_CONNECT_PROTOBUF=3.25.1
 
 USER root
 
@@ -33,30 +39,47 @@ RUN set -eux; \
     uv pip install --no-cache jupyterlab pandas pyarrow numpy \
         grpcio grpcio-status googleapis-common-protos zstandard; \
     uv pip install --no-cache --no-deps "delta-spark==${DELTA_SPARK_VERSION}"; \
+    if [ -n "${EXTRA_PIP_PACKAGES}" ]; then uv pip install --no-cache ${EXTRA_PIP_PACKAGES}; fi; \
     # Make the distribution's own PySpark + py4j importable (no version hardcoding).
     site="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"; \
     { echo /opt/spark/python; ls /opt/spark/python/lib/py4j-*-src.zip; } > "${site}/pyspark-dist.pth"; \
     python -c "import pyspark, delta; print('pyspark', pyspark.__version__)"
 
-# --- Delta Lake jars, baked into Spark's classpath (no runtime --packages) ---
+# --- Delta Lake (+ Delta Connect) and extra jars, baked into Spark's classpath --
 # Delta >= 4.1 publishes one artifact per Spark minor (delta-spark_4.1_2.13);
-# older releases use delta-spark_2.13. Resolve with Spark's own Ivy, then copy
-# only the jars Spark doesn't already ship so Spark's versions always win.
+# older releases use delta-spark_2.13. Resolve everything with Spark's own Ivy,
+# then copy only the jars Spark doesn't already ship so Spark's versions win.
+# The Delta Connect server plugin is optional (skipped if not published for this
+# Delta release); the chart turns it on with connect.deltaConnect.
 RUN set -eux; \
     mm="${SPARK_VERSION%.*}"; \
-    artifact="delta-spark_${mm}_2.13"; \
-    curl -fsI "https://repo1.maven.org/maven2/io/delta/${artifact}/${DELTA_SPARK_VERSION}/" >/dev/null \
-      || artifact="delta-spark_2.13"; \
-    spark-submit --master 'local[1]' --conf spark.jars.ivy=/tmp/ivy \
-      --packages "io.delta:${artifact}:${DELTA_SPARK_VERSION}" \
+    delta_artifact() { \
+      for a in "$1_${mm}_2.13" "$1_2.13"; do \
+        if curl -fsI "https://repo1.maven.org/maven2/io/delta/${a}/${DELTA_SPARK_VERSION}/" >/dev/null; then \
+          echo "io.delta:${a}:${DELTA_SPARK_VERSION}"; return; \
+        fi; \
+      done; \
+    }; \
+    packages="$(delta_artifact delta-spark)"; \
+    [ -n "${packages}" ] || { echo "Delta ${DELTA_SPARK_VERSION} is not published for Spark ${mm}"; exit 1; }; \
+    connect="$(delta_artifact delta-connect-server)"; \
+    # Delta Connect's generated code needs unshaded protobuf-java >= 3.25 (Spark
+    # only ships shaded copies, and Delta's pom asks for 3.24.4, which lacks
+    # MapFieldReflectionAccessor). Ivy keeps the newer version on conflict.
+    if [ -n "${connect}" ]; then packages="${packages},${connect},com.google.protobuf:protobuf-java:${DELTA_CONNECT_PROTOBUF}"; \
+    else echo "NOTE: no Delta Connect server for Delta ${DELTA_SPARK_VERSION}"; fi; \
+    if [ -n "${EXTRA_MAVEN_PACKAGES}" ]; then packages="${packages},${EXTRA_MAVEN_PACKAGES}"; fi; \
+    spark-submit --master 'local[1]' --conf spark.jars.ivy=/tmp/ivy --packages "${packages}" \
       --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples_*.jar 1 \
-      2>&1 | grep -q 'Pi is roughly' || { echo "Delta ${DELTA_SPARK_VERSION} did not resolve for Spark ${SPARK_VERSION}"; exit 1; }; \
+      > /tmp/resolve.log 2>&1 && grep -q 'Pi is roughly' /tmp/resolve.log \
+      || { grep -iE 'not found|unresolved|error' /tmp/resolve.log | head -20; \
+           echo "Could not resolve: ${packages}"; exit 1; }; \
     for jar in /tmp/ivy/jars/*.jar; do \
       name="$(basename "$jar" .jar)"; name="${name#*_}"; \
       name="$(echo "$name" | sed -E 's/-[0-9][^-]*(-.*)?$//')"; \
       ls /opt/spark/jars | grep -q "^${name}-[0-9]" || cp "$jar" /opt/spark/jars/; \
     done; \
-    rm -rf /tmp/ivy /root/.ivy2*; \
+    rm -rf /tmp/ivy /root/.ivy2* /tmp/resolve.log; \
     ls /opt/spark/jars | grep -i delta; \
     # delta-spark (pip) pins a PySpark range; warn — don't fail — when outside it,
     # since the jar above is matched to the Spark minor already.

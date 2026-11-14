@@ -41,6 +41,12 @@ everything: `./teardown.sh` (add `--namespace` to delete the `api` namespace).
 **Prerequisites:** Docker Desktop with Kubernetes enabled (or minikube). On
 macOS the script auto-installs the CLI tools via Homebrew.
 
+**Local clusters only.** `spinup.sh` and `teardown.sh` refuse to run unless your
+current kubectl context is a known local cluster (`docker-desktop`, `minikube`,
+`kind-*`, `k3d-*`, `rancher-desktop`, `orbstack`, `colima`), so a stray context
+can never deploy to — or tear down — staging or prod. For a dev cluster you own,
+allow it by its exact name: `./spinup.sh --allow-context my-dev-cluster`.
+
 ## Choose your versions
 
 **All configuration lives in [`charts/spark/values.yaml`](charts/spark/values.yaml).**
@@ -67,6 +73,51 @@ when the driver and executors use different Python minor versions.
 
 The same file also sets worker count/cores/memory, the Jupyter token, the
 Spark Connect server, and which folders are mounted into the pods.
+
+## Per-project setup (`spinup.sh -f`)
+
+Don't edit `values.yaml` for one project. Put **only what you want to change**
+in your own file (keep it in your project) and pass it with `-f`; it's layered
+on top of the defaults, and yours wins:
+
+```bash
+./spinup.sh -f ~/code/sales-analysis/spark.yaml
+```
+
+```yaml
+# ~/code/sales-analysis/spark.yaml
+versions:
+  python: "3.11"
+
+# Baked into the image, so the driver AND every executor have them.
+extraPackages:
+  maven: "org.postgresql:postgresql:42.7.4"   # comma-separated, like spark --packages
+  pip: "tabulate==0.9.0 requests>=2.31"       # space-separated, like pip install
+
+# Any Spark settings, applied to every driver (Jupyter + Spark Connect);
+# executors inherit them. Overrides the image and chart defaults.
+sparkConf:
+  spark.sql.shuffle.partitions: 8
+  spark.executor.memory: 512m
+
+# Folders from OUTSIDE this repo -> /opt/spark/work-dir/<name> on every pod.
+hostMount:
+  extraPaths:
+    - name: sales-data
+      hostPath: /Users/me/data/sales     # absolute; must exist
+
+jupyter:
+  token: my-token
+```
+
+| Key | When it applies | Notes |
+|-----|-----------------|-------|
+| `versions.*`, `extraPackages.*` | **build** — `spinup.sh` rebuilds the image | Keep each on one line (read without a YAML parser). A Maven jar that duplicates one Spark ships is skipped, so Spark's version wins. |
+| `sparkConf` | **deploy** — no rebuild | Driver-side; executor settings (e.g. `spark.executor.memory`) reach executors through the driver. |
+| `hostMount.extraPaths` | **deploy** | Read **and** write from Jupyter, executors and Spark Connect. On Docker Desktop the folder must be under a shared path (`/Users` by default — Settings → Resources → File sharing). A wrong `hostPath` fails loudly (pod stuck in `ContainerCreating`) instead of mounting an empty folder. |
+
+Only one deployment runs at a time (same namespace and ports), so switching
+projects is just `./spinup.sh -f other-project.yaml`.
 
 ## Use it from Jupyter
 
@@ -128,6 +179,28 @@ Things to know:
   (or use a separate notebook), otherwise PySpark raises `SESSION_ALREADY_EXIST`.
 - Don't need it? Set `connect.enabled: false` in `values.yaml` to save a pod.
 
+### Delta Lake from local programs (Delta Connect)
+
+Delta **SQL** and DataFrame reads/writes work with the plain `pyspark-client`
+above. For the Python **`DeltaTable` API** (`history()`, `update()`, `merge()`,
+`optimize()`, `vacuum()` …) the server runs the Delta Connect plugin
+(`connect.deltaConnect: true`, the default). On your machine install full
+PySpark + delta-spark instead of `pyspark-client` (the two conflict):
+
+```bash
+pip install "pyspark[connect]==4.1.0" "delta-spark==4.2.0"   # match versions.spark / versions.deltaSpark
+```
+
+```python
+from pyspark.sql import SparkSession
+from delta.tables import DeltaTable
+
+spark = SparkSession.builder.remote("sc://localhost:15002").getOrCreate()
+t = DeltaTable.forPath(spark, "/opt/spark/work-dir/warehouse/remote_client_delta")
+t.update(condition="id = 1", set={"id": "100"})
+t.history().select("version", "operation").show()
+```
+
 ## Reading data files
 
 The pods can't see your Mac's filesystem, so **files you want to read must live
@@ -152,7 +225,9 @@ Path rules:
 - An absolute in-pod path always works too: `/opt/spark/work-dir/test-datasets/x.csv`
   (use this form from Spark Connect clients).
 - A host path like `/Users/you/...` will **not** work — it doesn't exist in the pod.
-- To expose another folder, add it to `hostMount.paths` in `charts/spark/values.yaml`.
+- To expose another repo folder, add it to `hostMount.paths` in `charts/spark/values.yaml`;
+  for a folder **outside** the repo use `hostMount.extraPaths`
+  (see [Per-project setup](#per-project-setup-spinupsh--f)).
 - In cluster mode the **executors** read the file too; that's why the repo is
   mounted on the workers as well (same absolute path on every pod).
 - This uses a `hostPath` mount and works on Docker Desktop / minikube (they share
@@ -173,14 +248,18 @@ see the output on your Mac. Change it with `hostMount.warehouse` in `values.yaml
 ## How it fits together
 
 - **`charts/spark/values.yaml`** — the one place to configure everything:
-  versions, worker size, Jupyter token, Spark Connect, mounted folders.
-- **`skaffold.yaml`** — builds the image (versions passed as build args) and
-  deploys the Helm chart; the `portForward` block does all forwarding.
+  versions, extra packages, `sparkConf`, worker size, Jupyter token, Spark
+  Connect, mounted folders. Per-project overrides go in your own `-f` file.
+- **`skaffold.yaml`** — builds the image (versions + extra packages passed as
+  build args) and deploys the Helm chart with the defaults plus your `-f` file;
+  the `portForward` block does all forwarding.
+- **`scripts/cluster-guard.sh`** — the local-clusters-only check used by
+  `spinup.sh` and `teardown.sh`.
 - **`charts/spark/`** — the Helm chart: master, worker, Jupyter, Spark Connect.
 - **`docker/spark/Dockerfile`** — a single image used by **every** pod, built
   from `apache/spark:<spark>-scala2.13-java<java>-ubuntu` plus the chosen Python
-  (installed with [uv](https://docs.astral.sh/uv/)), the Delta Lake jars,
-  JupyterLab, and cluster-wide `spark-defaults.conf` (Delta enabled; dynamic
+  (installed with [uv](https://docs.astral.sh/uv/)), the Delta Lake + Delta
+  Connect jars, your `extraPackages`, JupyterLab, and cluster-wide `spark-defaults.conf` (Delta enabled; dynamic
   allocation + the worker's external shuffle service so Jupyter and Spark
   Connect share workers: idle apps give executors back after 60s, and Spark
   Connect is capped by `connect.maxExecutors`).
@@ -215,8 +294,14 @@ kubectl logs -l app=spark-connect -n api
   in use on your machine (e.g. a local Jupyter), Skaffold forwards to the next
   free one. Check the `Port forwarding ... -> http://127.0.0.1:<port>` lines in
   the `spinup.sh` output.
-- **Changed versions but nothing happened** — re-run `./spinup.sh`; the versions
-  are build-time settings, so the image must be rebuilt.
+- **`Refusing to use kubectl context ...`** — you're not on a local cluster.
+  `kubectl config use-context docker-desktop`, or `--allow-context <name>` for a
+  dev cluster you own.
+- **Pod stuck in `ContainerCreating`** after adding `extraPaths` — the
+  `hostPath` doesn't exist or isn't shared with Docker Desktop:
+  `kubectl describe pod -n api -l app=jupyter-pyspark`.
+- **Changed versions/packages but nothing happened** — re-run `./spinup.sh` (with
+  the same `-f`); they are build-time settings, so the image must be rebuilt.
 - **Master crashes parsing `tcp://...:7077`** — a Kubernetes service-link env
   var collided with Spark's `SPARK_MASTER_PORT`. The chart disables that with
   `enableServiceLinks: false`.

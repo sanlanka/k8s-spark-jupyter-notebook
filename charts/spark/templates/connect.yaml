@@ -39,9 +39,17 @@ spec:
             # Always-on app: cap it so it can never take every worker core.
             - --conf
             - spark.dynamicAllocation.maxExecutors={{ .Values.connect.maxExecutors }}
-{{- with include "spark.warehouseDir" . }}
+{{- if .Values.connect.deltaConnect }}
+            # Delta Connect: the DeltaTable Python API over Spark Connect.
             - --conf
-            - spark.sql.warehouse.dir={{ . }}
+            - spark.connect.extensions.relation.classes=org.apache.spark.sql.connect.delta.DeltaRelationPlugin
+            - --conf
+            - spark.connect.extensions.command.classes=org.apache.spark.sql.connect.delta.DeltaCommandPlugin
+{{- end }}
+            # Warehouse dir + your sparkConf (last, so it overrides the above).
+{{- range $k, $v := include "spark.driverConf" . | fromYaml }}
+            - --conf
+            - {{ printf "%s=%s" $k $v | quote }}
 {{- end }}
           env:
             # Run in the foreground so the container lives as long as the server.

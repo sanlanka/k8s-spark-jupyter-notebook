@@ -1,5 +1,9 @@
 # Values for the spark-jupyter chart.
 
+# Per-project settings: don't edit this file for one project — put just the keys
+# you want to change in your own file and run `./spinup.sh -f my-project.yaml`.
+# Your file is layered on top of this one (yours wins).
+
 # ---------------------------------------------------------------------------
 # Versions — change these to pick your Spark / Python / Delta Lake.
 #
@@ -23,6 +27,25 @@ versions:
   python: "3.12"
   deltaSpark: "4.2.0"
   java: "17"
+
+# Extra libraries baked into the image (BUILD-time, like versions above) so the
+# driver AND every executor have them. Re-run ./spinup.sh after changing.
+#   maven  comma-separated Maven coordinates, same format as spark --packages
+#          e.g. "org.postgresql:postgresql:42.7.4,org.apache.spark:spark-avro_2.13:4.1.0"
+#   pip    space-separated pip requirements, same format as pip install
+#          e.g. "requests==2.32.3 scikit-learn"
+# Keep each on ONE line (spinup.sh reads them without a YAML parser).
+extraPackages:
+  maven: ""
+  pip: ""
+
+# Any Spark settings, applied to every driver (Jupyter and Spark Connect);
+# executors inherit them from the driver. Deploy-time: no rebuild needed. These
+# override the image defaults (docker/spark/Dockerfile) and the chart's own.
+#   sparkConf:
+#     spark.sql.shuffle.partitions: "8"
+#     spark.executor.memory: 512m
+sparkConf: {}
 
 # Every pod (master, workers, Spark Connect, Jupyter) runs this one image, built
 # by Skaffold from docker/spark/Dockerfile with the versions above. Skaffold
@@ -64,6 +87,10 @@ connect:
   # Executors (1 core / 1g each) this always-on server may hold at once, so it
   # can't starve Jupyter. Raise it when you add worker cores/replicas.
   maxExecutors: 1
+  # Delta Connect: lets remote clients use the Python DeltaTable API (history,
+  # merge, optimize, vacuum ...) over Spark Connect. Delta SQL works either way.
+  # Clients need `pip install pyspark==<spark> delta-spark==<deltaSpark>`.
+  deltaConnect: true
   resources:
     requests:
       cpu: 100m
@@ -90,3 +117,11 @@ hostMount:
   # spark.sql.warehouse.dir. Write Delta/Parquet/saveAsTable output here — NOT
   # /tmp, which is private to each pod (executors and driver would disagree).
   warehouse: warehouse
+  # Folders from OUTSIDE this repo, mounted at <mountRoot>/<name> on Jupyter,
+  # the workers and Spark Connect (read and write). hostPath must be absolute and
+  # must exist; on Docker Desktop it must be under a shared folder (/Users by
+  # default, see Settings > Resources > File sharing).
+  #   extraPaths:
+  #     - name: sales-data
+  #       hostPath: /Users/me/data/sales
+  extraPaths: []
