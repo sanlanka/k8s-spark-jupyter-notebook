@@ -18,7 +18,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: jupyter
-          image: {{ .Values.jupyter.image | quote }}
+          image: {{ .Values.image | quote }}
           command: ["/bin/bash", "-lc"]
           args:
             - |
@@ -27,8 +27,11 @@ spec:
               # bind on all interfaces. Written before the notebook starts so both
               # notebook SparkSessions and spark-submit pick it up.
               {
-                echo "spark.driver.host $(hostname -i | awk '{print $1}')"
+                echo "spark.driver.host ${POD_IP}"
                 echo "spark.driver.bindAddress 0.0.0.0"
+{{- with include "spark.warehouseDir" . }}
+                echo "spark.sql.warehouse.dir {{ . }}"
+{{- end }}
               } >> /opt/spark/conf/spark-defaults.conf
               exec jupyter lab --ip=0.0.0.0 --port=8888 --no-browser \
                 --ServerApp.token="${JUPYTER_TOKEN}" \
@@ -38,6 +41,10 @@ spec:
               value: {{ .Values.jupyter.token | quote }}
             - name: SPARK_MASTER
               value: "spark://{{ .Values.spark.masterService }}:7077"
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
           ports:
             - name: jupyter
               containerPort: 8888

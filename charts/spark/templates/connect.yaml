@@ -1,0 +1,90 @@
+{{- if .Values.connect.enabled }}
+# Spark Connect server: a long-running driver in the cluster that local programs
+# reach over one gRPC port (port-forwarded to localhost:15002 by Skaffold).
+# Clients: SparkSession.builder.remote("sc://localhost:15002").getOrCreate()
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-connect
+  labels:
+    app: spark-connect
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark-connect
+  template:
+    metadata:
+      labels:
+        app: spark-connect
+    spec:
+      # Avoid Spark-colliding SPARK_MASTER_* service-link env vars.
+      enableServiceLinks: false
+      containers:
+        - name: spark-connect
+          image: {{ .Values.image | quote }}
+          command: ["/opt/spark/sbin/start-connect-server.sh"]
+          # Driver advertises its pod IP so executors on the workers can reach it.
+          args:
+            - --master
+            - spark://{{ .Values.spark.masterService }}:7077
+            - --driver-memory
+            - {{ .Values.connect.driverMemory | quote }}
+            - --conf
+            - spark.connect.grpc.binding.port={{ .Values.connect.port }}
+            - --conf
+            - spark.driver.host=$(POD_IP)
+            - --conf
+            - spark.driver.bindAddress=0.0.0.0
+            # Always-on app: cap it so it can never take every worker core.
+            - --conf
+            - spark.dynamicAllocation.maxExecutors={{ .Values.connect.maxExecutors }}
+{{- with include "spark.warehouseDir" . }}
+            - --conf
+            - spark.sql.warehouse.dir={{ . }}
+{{- end }}
+          env:
+            # Run in the foreground so the container lives as long as the server.
+            - name: SPARK_NO_DAEMONIZE
+              value: "true"
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          ports:
+            - name: connect
+              containerPort: {{ .Values.connect.port }}
+            - name: driver-ui
+              containerPort: 4040
+          readinessProbe:
+            tcpSocket:
+              port: connect
+            periodSeconds: 5
+          resources:
+{{ toYaml .Values.connect.resources | indent 12 }}
+{{- if and .Values.hostMount.enabled .Values.hostMount.hostPath }}
+          # The driver lists input files / infers schemas, so it needs the same
+          # mounts as the workers: read /opt/spark/work-dir/test-datasets/... .
+          volumeMounts:
+{{ include "spark.hostMounts" . | indent 12 }}
+      volumes:
+{{ include "spark.hostVolumes" . | indent 8 }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark-connect
+  labels:
+    app: spark-connect
+spec:
+  selector:
+    app: spark-connect
+  ports:
+    - name: connect
+      port: {{ .Values.connect.port }}
+      targetPort: {{ .Values.connect.port }}
+    - name: driver-ui
+      port: 4040
+      targetPort: 4040
+{{- end }}

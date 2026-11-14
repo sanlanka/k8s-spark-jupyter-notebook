@@ -19,12 +19,14 @@ spec:
       enableServiceLinks: false
       containers:
         - name: spark-master
-          image: {{ .Values.spark.image | quote }}
+          image: {{ .Values.image | quote }}
           command: ["/opt/spark/bin/spark-class"]
-          args: ["org.apache.spark.deploy.master.Master"]
+          # Advertise the pod IP so workers and drivers can reach it. (Not
+          # SPARK_LOCAL_IP: that also binds the web UI to the pod IP only, which
+          # breaks `kubectl port-forward` to localhost:8080.)
+          args: ["org.apache.spark.deploy.master.Master", "--host", "$(POD_IP)"]
           env:
-            # Bind/advertise on the pod IP so workers and drivers can reach it.
-            - name: SPARK_LOCAL_IP
+            - name: POD_IP
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP

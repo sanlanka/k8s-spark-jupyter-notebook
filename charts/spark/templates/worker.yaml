@@ -18,7 +18,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: spark-worker
-          image: {{ .Values.spark.image | quote }}
+          image: {{ .Values.image | quote }}
           command: ["/opt/spark/bin/spark-class"]
           args:
             - org.apache.spark.deploy.worker.Worker
@@ -27,8 +27,11 @@ spec:
             - {{ .Values.spark.worker.cores | quote }}
             - --memory
             - {{ .Values.spark.worker.memory | quote }}
+            # Advertise the pod IP (see master.yaml for why not SPARK_LOCAL_IP).
+            - --host
+            - $(POD_IP)
           env:
-            - name: SPARK_LOCAL_IP
+            - name: POD_IP
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP

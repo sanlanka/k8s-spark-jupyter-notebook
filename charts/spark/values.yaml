@@ -1,23 +1,73 @@
 # Values for the spark-jupyter chart.
 
+# ---------------------------------------------------------------------------
+# Versions — change these to pick your Spark / Python / Delta Lake.
+#
+# They are BUILD-time settings: ./spinup.sh reads this block and passes it to
+# the Docker build (docker/spark/Dockerfile) as build args, so the master,
+# workers, Spark Connect server and Jupyter all run one image with the same
+# versions. Edit, then re-run ./spinup.sh to rebuild and redeploy.
+#
+#   spark       Apache Spark release; must have an apache/spark Docker Hub tag
+#               (https://hub.docker.com/r/apache/spark/tags).
+#   python      Any CPython minor (e.g. "3.11", "3.12", "3.13") supported by
+#               that Spark (Spark 4.x needs >= 3.10). Installed via uv.
+#   deltaSpark  Delta Lake release compatible with that Spark minor
+#               (https://docs.delta.io/latest/releases.html). 4.2.0 -> Spark 4.1.
+#   java        JDK used by Spark (17 or 21 for Spark 4.x).
+#
+# Keep the values quoted — "3.10" unquoted is the number 3.1 in YAML.
+# ---------------------------------------------------------------------------
+versions:
+  spark: "4.1.0"
+  python: "3.12"
+  deltaSpark: "4.2.0"
+  java: "17"
+
+# Every pod (master, workers, Spark Connect, Jupyter) runs this one image, built
+# by Skaffold from docker/spark/Dockerfile with the versions above. Skaffold
+# overrides it at deploy time; the default lets `helm template` work.
+image: spark-jupyter:latest
+
 spark:
-  # Cluster runs the stock, official Apache Spark image (Docker Hub) — no build.
-  image: apache/spark:4.0.0
   masterService: spark-master
   worker:
-    replicas: 1        # start with 2 pods total: 1 master + 1 worker
-    cores: 1
-    memory: 2G         # headroom so a default 1g PySpark executor fits
+    replicas: 1        # start small: 1 master + 1 worker
+    # Each app executor uses 1 core / 1g (see spark-defaults in the Dockerfile),
+    # so 2 cores / 2G lets Jupyter and Spark Connect each run an executor at once.
+    cores: 2
+    memory: 2G
   resources:
     requests:
       cpu: 100m
       memory: 256Mi
 
 jupyter:
-  # Built by Skaffold from docker/jupyter/Dockerfile (apache/spark + JupyterLab).
-  # Skaffold overrides this at deploy time; the default lets `helm template` work.
-  image: spark-jupyter:latest
   token: spark123
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+# Spark Connect server: a long-running Spark driver inside the cluster that
+# speaks gRPC on one port (15002). Port-forwarded to localhost:15002, it lets
+# ANY program on your machine — a Python script, VS Code, PyCharm, a local
+# Jupyter, a Scala/Go/Rust client — use the cluster:
+#   SparkSession.builder.remote("sc://localhost:15002").getOrCreate()
+# (A plain spark://localhost:7077 can't work from your laptop: executors must
+# connect back to the driver, which a port-forward can't route.)
+# Set enabled: false to save a pod if you only use Jupyter.
+connect:
+  enabled: true
+  port: 15002
+  driverMemory: 1g
+  # Executors (1 core / 1g each) this always-on server may hold at once, so it
+  # can't starve Jupyter. Raise it when you add worker cores/replicas.
+  maxExecutors: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
 
 # Mount a host directory into the Jupyter driver AND the workers at the SAME
 # path, so local files (notebooks/, test-datasets/) are readable in both local
@@ -36,7 +86,7 @@ hostMount:
   paths:
     - notebooks
     - test-datasets
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
+  # Shared OUTPUT folder (gitignored), always mounted on every pod and used as
+  # spark.sql.warehouse.dir. Write Delta/Parquet/saveAsTable output here — NOT
+  # /tmp, which is private to each pod (executors and driver would disagree).
+  warehouse: warehouse

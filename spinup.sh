@@ -38,19 +38,44 @@ kubectl cluster-info >/dev/null 2>&1 || \
 
 info "Tooling and cluster OK. Context: $(kubectl config current-context)"
 
+# --- Versions: single source of truth is charts/spark/values.yaml ----------
+VALUES_FILE=charts/spark/values.yaml
+
+# Read `versions.<key>` from the values file (flat block, no yq needed).
+read_version() {
+  awk -v key="$1" '
+    /^versions:/                 { in_block = 1; next }
+    in_block && /^[^[:space:]#]/ { exit }
+    in_block && $1 == key ":"    { v = $2; gsub(/["'\'']/, "", v); print v; exit }
+  ' "$VALUES_FILE"
+}
+
+SPARK_VERSION="$(read_version spark)"
+PYTHON_VERSION="$(read_version python)"
+DELTA_SPARK_VERSION="$(read_version deltaSpark)"
+JAVA_VERSION="$(read_version java)"
+for v in SPARK_VERSION PYTHON_VERSION DELTA_SPARK_VERSION JAVA_VERSION; do
+  [[ -n "${!v}" ]] || error "Missing versions.* entry for $v in $VALUES_FILE"
+done
+export SPARK_VERSION PYTHON_VERSION DELTA_SPARK_VERSION JAVA_VERSION
+
 # --- Spin everything up ----------------------------------------------------
 cat <<EOF
 
-Building the Jupyter image and deploying via Skaffold...
+Building the image (Spark $SPARK_VERSION, Python $PYTHON_VERSION, Delta $DELTA_SPARK_VERSION, Java $JAVA_VERSION)
+and deploying via Skaffold. Change versions in $VALUES_FILE.
 Once ready:
-  Jupyter : http://localhost:8888   (token: spark123)
-  Spark UI: http://localhost:8080
+  Jupyter       : http://localhost:8888   (token: spark123)
+  Spark UI      : http://localhost:8080
+  Spark Connect : sc://localhost:15002    (use the cluster from any local program)
 Port-forwarding is handled by Skaffold. Press Ctrl-C to stop it.
 
 EOF
 
 # Mount this repo into Jupyter + workers so local files are readable in the pods.
 export PROJECT_DIR="$PWD"
+# Shared output folder (hostMount.warehouse) — create it so you own it, not the kubelet.
+mkdir -p warehouse
 
 # `skaffold dev` builds, deploys, and holds the portForward entries defined in
 # skaffold.yaml. --cleanup=false keeps the cluster running after Ctrl-C.

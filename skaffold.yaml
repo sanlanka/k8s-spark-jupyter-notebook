@@ -3,17 +3,25 @@ kind: Config
 metadata:
   name: spark-jupyter
 
-# Skaffold builds the Jupyter driver image (apache/spark + JupyterLab) locally.
-# On Docker Desktop / minikube the image is used straight from the local daemon
-# (no registry push needed).
+# Skaffold builds ONE image (Spark + Python + Delta + JupyterLab) used by every
+# pod. On Docker Desktop / minikube the image is used straight from the local
+# daemon (no registry push needed).
+#
+# Versions come from `versions:` in charts/spark/values.yaml — spinup.sh reads
+# that block and exports these env vars. Don't hardcode versions here.
 build:
   local:
     push: false
   artifacts:
     - image: spark-jupyter
-      context: docker/jupyter
+      context: docker/spark
       docker:
         dockerfile: Dockerfile
+        buildArgs:
+          SPARK_VERSION: "{{.SPARK_VERSION}}"
+          PYTHON_VERSION: "{{.PYTHON_VERSION}}"
+          DELTA_SPARK_VERSION: "{{.DELTA_SPARK_VERSION}}"
+          JAVA_VERSION: "{{.JAVA_VERSION}}"
 
 # Deploy the custom Helm chart, injecting the freshly built image tag.
 manifests:
@@ -26,7 +34,7 @@ manifests:
         valuesFiles:
           - charts/spark/values.yaml
         setValueTemplates:
-          jupyter.image: "{{.IMAGE_REPO_spark_jupyter}}:{{.IMAGE_TAG_spark_jupyter}}"
+          image: "{{.IMAGE_REPO_spark_jupyter}}:{{.IMAGE_TAG_spark_jupyter}}"
           # Host dir to mount into Jupyter + workers. Set PROJECT_DIR (spinup.sh
           # does); if empty the chart skips the mount.
           hostMount.hostPath: "{{.PROJECT_DIR}}"
@@ -51,3 +59,15 @@ portForward:
     namespace: api
     port: 8080
     localPort: 8080
+  # Spark Connect: lets any local program use the cluster via sc://localhost:15002.
+  - resourceType: service
+    resourceName: spark-connect
+    namespace: api
+    port: 15002
+    localPort: 15002
+  # Spark Connect driver UI (4040 is taken by the Jupyter driver UI).
+  - resourceType: service
+    resourceName: spark-connect
+    namespace: api
+    port: 4040
+    localPort: 4041
