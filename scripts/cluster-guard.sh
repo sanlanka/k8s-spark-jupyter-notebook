@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Sourced by spinup.sh and teardown.sh. Refuses to touch any Kubernetes cluster
 # that isn't a known LOCAL dev cluster, so a stray kubectl context can never
 # point this at staging/prod. To use another cluster you own, allow it by its
@@ -5,6 +6,7 @@
 #
 # Sets CLUSTER_CONTEXT for the caller to pass to skaffold/kubectl explicitly, so
 # the context that was checked is the one that gets used.
+# shellcheck disable=SC2034  # CLUSTER_CONTEXT is read by the sourcing script
 
 LOCAL_CONTEXTS='docker-desktop docker-for-desktop minikube rancher-desktop orbstack colima colima-* kind-* k3d-*'
 

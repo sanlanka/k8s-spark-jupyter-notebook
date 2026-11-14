@@ -11,6 +11,7 @@ local Spark needed. DataFrame / SQL work from any Python; Python UDFs run on the
 cluster's Python, so they need your local Python minor to match versions.python
 (3.12 by default).
 """
+
 import os
 
 from pyspark.sql import SparkSession
@@ -41,9 +42,13 @@ print("Delta rows:", spark.read.format("delta").load(path).count())
 # Python UDFs execute on the cluster's Python — skip if the minor versions differ.
 try:
     plus_one = F.udf(lambda x: x + 1, "long")
-    print("UDF result:", [r[0] for r in spark.range(3).select(plus_one("id")).collect()])
+    print(
+        "UDF result:", [r[0] for r in spark.range(3).select(plus_one("id")).collect()]
+    )
 except Exception as e:  # PYTHON_VERSION_MISMATCH when local Python != cluster Python
-    print(f"Skipping UDF demo ({type(e).__name__}): local Python must match the cluster's.")
+    print(
+        f"Skipping UDF demo ({type(e).__name__}): local Python must match the cluster's."
+    )
 
 spark.stop()
 print("Done — your local program just used the Kubernetes Spark cluster.")
